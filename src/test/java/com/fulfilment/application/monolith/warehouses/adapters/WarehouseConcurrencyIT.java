@@ -4,10 +4,9 @@ import com.fulfilment.application.monolith.location.LocationGateway;
 import com.fulfilment.application.monolith.warehouses.adapters.database.WarehouseRepository;
 import com.fulfilment.application.monolith.warehouses.domain.models.Warehouse;
 import com.fulfilment.application.monolith.warehouses.domain.usecases.CreateWarehouseUseCase;
+import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -38,13 +37,9 @@ public class WarehouseConcurrencyIT {
   @Inject
   LocationGateway locationResolver;
 
-  private CreateWarehouseUseCase createWarehouseUseCase;
-
-  @BeforeEach
-  @Transactional
-  public void setup() {
-    createWarehouseUseCase = new CreateWarehouseUseCase(warehouseRepository, locationResolver);
-  }
+  /** CDI-managed so {@code @Transactional(REQUIRES_NEW)} on {@code create} applies from worker threads. */
+  @Inject
+  CreateWarehouseUseCase createWarehouseUseCase;
 
   /**
    * Test concurrent creation of warehouses with unique codes.
@@ -141,7 +136,6 @@ public class WarehouseConcurrencyIT {
    * Test concurrent reads don't block each other (read scalability).
    */
   @Test
-  @Transactional
   public void testConcurrentReadsAreNonBlocking() throws InterruptedException {
     // Create a warehouse first
     Warehouse warehouse = new Warehouse();
@@ -150,24 +144,27 @@ public class WarehouseConcurrencyIT {
     warehouse.capacity = 100;
     warehouse.stock = 50;
     createWarehouseUseCase.create(warehouse);
-    
+
     int readThreadCount = 20;
     ExecutorService executor = Executors.newFixedThreadPool(readThreadCount);
     CountDownLatch latch = new CountDownLatch(readThreadCount);
-    
+
     AtomicInteger successfulReads = new AtomicInteger(0);
-    
+
     for (int i = 0; i < readThreadCount; i++) {
-      executor.submit(() -> {
-        try {
-          Warehouse found = warehouseRepository.findByBusinessUnitCode("READ-TEST-001");
-          if (found != null) {
-            successfulReads.incrementAndGet();
-          }
-        } finally {
-          latch.countDown();
-        }
-      });
+      executor.submit(
+          () -> {
+            try {
+              Warehouse found =
+                  QuarkusTransaction.requiringNew()
+                      .call(() -> warehouseRepository.findByBusinessUnitCode("READ-TEST-001"));
+              if (found != null) {
+                successfulReads.incrementAndGet();
+              }
+            } finally {
+              latch.countDown();
+            }
+          });
     }
     
     latch.await(10, TimeUnit.SECONDS);

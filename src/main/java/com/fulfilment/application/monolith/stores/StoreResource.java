@@ -6,6 +6,9 @@ import io.quarkus.panache.common.Sort;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Event;
 import jakarta.inject.Inject;
+import jakarta.transaction.Status;
+import jakarta.transaction.Synchronization;
+import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
@@ -28,11 +31,11 @@ import org.jboss.logging.Logger;
 @Consumes("application/json")
 public class StoreResource {
 
-  @Inject LegacyStoreManagerGateway legacyStoreManagerGateway;
-  
   @Inject Event<StoreCreatedEvent> storeCreatedEvent;
   
   @Inject Event<StoreUpdatedEvent> storeUpdatedEvent;
+
+  @Inject TransactionSynchronizationRegistry synchronizationRegistry;
 
   private static final Logger LOGGER = Logger.getLogger(StoreResource.class.getName());
 
@@ -59,7 +62,19 @@ public class StoreResource {
     }
 
     store.persist();
-    storeCreatedEvent.fireAsync(new StoreCreatedEvent(store));
+    Store created = store;
+    synchronizationRegistry.registerInterposedSynchronization(
+        new Synchronization() {
+          @Override
+          public void beforeCompletion() {}
+
+          @Override
+          public void afterCompletion(int status) {
+            if (status == Status.STATUS_COMMITTED) {
+              storeCreatedEvent.fireAsync(new StoreCreatedEvent(created));
+            }
+          }
+        });
 
     return Response.ok(store).status(201).build();
   }
@@ -81,7 +96,19 @@ public class StoreResource {
     entity.name = updatedStore.name;
     entity.quantityProductsInStock = updatedStore.quantityProductsInStock;
 
-    storeUpdatedEvent.fireAsync(new StoreUpdatedEvent(entity));
+    Store updated = entity;
+    synchronizationRegistry.registerInterposedSynchronization(
+        new Synchronization() {
+          @Override
+          public void beforeCompletion() {}
+
+          @Override
+          public void afterCompletion(int status) {
+            if (status == Status.STATUS_COMMITTED) {
+              storeUpdatedEvent.fireAsync(new StoreUpdatedEvent(updated));
+            }
+          }
+        });
 
     return entity;
   }
@@ -108,7 +135,19 @@ public class StoreResource {
       entity.quantityProductsInStock = updatedStore.quantityProductsInStock;
     }
 
-    storeUpdatedEvent.fireAsync(new StoreUpdatedEvent(entity));
+    Store patched = entity;
+    synchronizationRegistry.registerInterposedSynchronization(
+        new Synchronization() {
+          @Override
+          public void beforeCompletion() {}
+
+          @Override
+          public void afterCompletion(int status) {
+            if (status == Status.STATUS_COMMITTED) {
+              storeUpdatedEvent.fireAsync(new StoreUpdatedEvent(patched));
+            }
+          }
+        });
 
     return entity;
   }
