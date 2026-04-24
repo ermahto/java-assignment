@@ -170,7 +170,8 @@
                 <executions>
                     <execution>
                         <id>jacoco-report</id>
-                        <phase>test</phase>
+                        <!-- After forked Surefire/Quarkus tests so jacoco-quarkus.exec is complete (HTML index.html). -->
+                        <phase>verify</phase>
                         <goals>
                             <goal>report</goal>
                         </goals>
