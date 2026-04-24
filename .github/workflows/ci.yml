@@ -20,7 +20,8 @@ jobs:
           cache: "maven"
 
       - name: Build and run tests with coverage
-        run: ./mvnw -B clean test
+        # mvnw often has no +x in git on Windows; invoke via bash on ubuntu-latest
+        run: bash ./mvnw -B clean test
 
       - name: Upload JaCoCo report
         uses: actions/upload-artifact@v4
